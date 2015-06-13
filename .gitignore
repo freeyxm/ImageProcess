@@ -1,3 +1,4 @@
 *.suo
+*.user
 ImageProcess/bin
 ImageProcess/obj

@@ -23,7 +23,7 @@ namespace ImageProcess
                 if (_args.Length == 0)
                 {
                     PrintCmd(null);
-                    return;
+                    continue;
                 }
 
                 switch (_args[0].ToLower())
@@ -43,7 +43,7 @@ namespace ImageProcess
                         System.Drawing.Color srcColor = System.Drawing.Color.FromArgb(r, g, b);
                         System.Drawing.Color dstColor = System.Drawing.Color.FromArgb(0, r, g, b);
 
-                        ImageUtil.ChangeBG_Dir(src, dst, srcColor, dstColor, range);
+                        ImageChangeBg.ChangeBG_Dir(ImageChangeBg.ChangeBgMode.Around, src, dst, srcColor, dstColor, range);
 
                         break;
                     default:
