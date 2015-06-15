@@ -52,6 +52,7 @@ namespace ImageProcess
                         PrintCmd(null);
                         break;
                 }
+                System.GC.Collect();
             }
         }
 

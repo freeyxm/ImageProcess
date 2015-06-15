@@ -19,14 +19,16 @@ namespace ImageProcess
         }
 
         private const int COLOR_BYTE_NUM = 4; // 采用 32-bit ARGB 格式
-        private ChangeBgMode m_mode = ChangeBgMode.All; // 工作模式
+        private ChangeBgMode m_mode = ChangeBgMode.All; // 转换模式
         private byte[] m_argbBytes; // 像素数组
-        private int m_width; // 图片宽
-        private int m_height; // 图片高
+        private int m_width; // 图片宽（像素）
+        private int m_height; // 图片高（像素）
+        private int m_rowByteNum;
         private Color m_srcColor; // 源背景色
         private int m_dstColorInt; // 目标背景色
         private int m_colorRange; // 阈值
-        private Queue<int> m_pixelQueue;
+        private Queue<int> m_pixelQueue; // 像素遍历队列
+        private bool[] m_pixelVisited; // 像素遍历标记
 
         public void SetMode(ChangeBgMode mode)
         {
@@ -47,19 +49,36 @@ namespace ImageProcess
         }
 
         /// <summary>
-        /// 改变指定图片外围的背景色（快速，只能处理边框是规则的类矩形的图像）。
+        /// 设置图像尺寸。批处理时，设置成最大图像尺寸，可防止重新分配缓冲区内存。
+        /// </summary>
+        /// <param name="width">宽度</param>
+        /// <param name="height">高度</param>
+        public void SetSize(int width, int height)
+        {
+            m_width = width;
+            m_height = height;
+            m_rowByteNum = width * COLOR_BYTE_NUM;
+
+            int byte_num = height * width * COLOR_BYTE_NUM;
+            if (m_argbBytes == null || m_argbBytes.Length < byte_num)
+            {
+                m_argbBytes = new byte[byte_num];
+            }
+        }
+
+        /// <summary>
+        /// 改变指定图片外围的背景色（快速，只能处理外围边界是规则的类矩形的图像）。
         /// </summary>
         void ChangeBG_AroundRect()
         {
             int top = 0, bottom = 0, left = m_width - 1, right = 0; // 标记背景的上下左右4个边界
-            int rowByteNum = m_width * COLOR_BYTE_NUM;
 
             // 扫描行
             for (int h = 0; h < m_height; ++h)
             {
                 int w;
                 int w0 = m_width; // 从左开始的第1个非背景色像素点
-                int baseIndex = h * rowByteNum;
+                int baseIndex = h * m_rowByteNum;
                 // left to right
                 for (w = 0; w < m_width; ++w)
                 {
@@ -106,7 +125,7 @@ namespace ImageProcess
                 // top to bottom
                 for (h = top; h <= bottom; ++h)
                 {
-                    if (!TestAndSetBgColor(h * rowByteNum + baseW))
+                    if (!TestAndSetBgColor(h * m_rowByteNum + baseW))
                     {
                         h0 = h;
                         break;
@@ -115,7 +134,7 @@ namespace ImageProcess
                 // bottom to top
                 for (h = bottom; h > h0; --h)
                 {
-                    if (!TestAndSetBgColor(h * rowByteNum + baseW))
+                    if (!TestAndSetBgColor(h * m_rowByteNum + baseW))
                     {
                         break;
                     }
@@ -133,55 +152,72 @@ namespace ImageProcess
             else
                 m_pixelQueue.Clear();
 
+            // 重设遍历标记
+            int size = m_width * m_height;
+            if (m_pixelVisited == null || m_pixelVisited.Length < size)
+            {
+                m_pixelVisited = new bool[size];
+            }
+            for (int i = 0; i < m_pixelVisited.Length; ++i)
+            {
+                m_pixelVisited[i] = false;
+            }
+
             // 不能确保从某一条边开始可以遍历完整幅图，所以需要对4条边进行遍历。
             // top row
             for (int w = 0; w < m_width; ++w)
             {
-                int index = w * COLOR_BYTE_NUM;
-                if (IsBgColor(index))
+                int indexC = w;
+                int index = indexC * COLOR_BYTE_NUM;
+                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
                 {
+                    m_pixelVisited[indexC] = true;
                     m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundSearch(m_pixelQueue);
+                    ChangeBG_AroundTraverse(m_pixelQueue);
                 }
             }
             // bottom row
             int baseH = (m_height - 1) * m_width;
             for (int w = 0; w < m_width; ++w)
             {
-                int index = (baseH + w) * COLOR_BYTE_NUM;
-                if (IsBgColor(index))
+                int indexC = baseH + w;
+                int index = indexC * COLOR_BYTE_NUM;
+                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
                 {
+                    m_pixelVisited[indexC] = true;
                     m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundSearch(m_pixelQueue);
+                    ChangeBG_AroundTraverse(m_pixelQueue);
                 }
             }
             // top col
-            int rowByteNum = m_width * COLOR_BYTE_NUM;
             for (int h = 0; h < m_height; ++h)
             {
-                int index = h * rowByteNum;
-                if (IsBgColor(index))
+                int indexC = h * m_width;
+                int index = indexC * COLOR_BYTE_NUM;
+                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
                 {
+                    m_pixelVisited[indexC] = true;
                     m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundSearch(m_pixelQueue);
+                    ChangeBG_AroundTraverse(m_pixelQueue);
                 }
             }
             // bottom col
-            int baseW = (m_width - 1) * COLOR_BYTE_NUM;
+            int baseW = m_width - 1;
             for (int h = 0; h < m_height; ++h)
             {
-                int index = h * rowByteNum + baseW;
-                if (IsBgColor(index))
+                int indexC = h * m_width + baseW;
+                int index = indexC * COLOR_BYTE_NUM;
+                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
                 {
+                    m_pixelVisited[indexC] = true;
                     m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundSearch(m_pixelQueue);
+                    ChangeBG_AroundTraverse(m_pixelQueue);
                 }
             }
         }
 
-        void ChangeBG_AroundSearch(Queue<int> m_queue)
+        void ChangeBG_AroundTraverse(Queue<int> m_queue)
         {
-            int rowByteNum = m_width * COLOR_BYTE_NUM;
             while (m_queue.Count > 0)
             {
                 int index = m_queue.Dequeue();
@@ -191,39 +227,57 @@ namespace ImageProcess
                 // left
                 if (w > 0)
                 {
-                    ChangeBG_AroundSearchUpdate(m_queue, index - COLOR_BYTE_NUM);
+                    int indexC2 = indexC - 1;
+                    if (!m_pixelVisited[indexC2])
+                    {
+                        m_pixelVisited[indexC2] = true;
+                        int index2 = index - COLOR_BYTE_NUM;
+                        if (TestAndSetBgColor(index2))
+                        {
+                            m_queue.Enqueue(index2);
+                        }
+                    }
                 }
                 // right
                 if (w < m_width - 1)
                 {
-                    ChangeBG_AroundSearchUpdate(m_queue, index + COLOR_BYTE_NUM);
+                    int indexC2 = indexC + 1;
+                    if (!m_pixelVisited[indexC2])
+                    {
+                        m_pixelVisited[indexC2] = true;
+                        int index2 = index + COLOR_BYTE_NUM;
+                        if (TestAndSetBgColor(index2))
+                        {
+                            m_queue.Enqueue(index2);
+                        }
+                    }
                 }
                 // top
                 if (h > 0)
                 {
-                    ChangeBG_AroundSearchUpdate(m_queue, index - rowByteNum);
+                    int indexC2 = indexC - m_width;
+                    if (!m_pixelVisited[indexC2])
+                    {
+                        m_pixelVisited[indexC2] = true;
+                        int index2 = index - m_rowByteNum;
+                        if (TestAndSetBgColor(index2))
+                        {
+                            m_queue.Enqueue(index2);
+                        }
+                    }
                 }
                 // top
                 if (h < m_height - 1)
                 {
-                    ChangeBG_AroundSearchUpdate(m_queue, index + rowByteNum);
-                }
-            }
-        }
-
-        unsafe void ChangeBG_AroundSearchUpdate(Queue<int> m_queue, int index)
-        {
-            if (m_queue.Contains(index))
-                return;
-            if (IsBgColor(index))
-            {
-                fixed (byte* pb = &m_argbBytes[index])
-                {
-                    int color = *((int*)pb);
-                    if (color != m_dstColorInt)
+                    int indexC2 = indexC + m_width;
+                    if (!m_pixelVisited[indexC2])
                     {
-                        *((int*)pb) = m_dstColorInt;
-                        m_queue.Enqueue(index);
+                        m_pixelVisited[indexC2] = true;
+                        int index2 = index + m_rowByteNum;
+                        if (TestAndSetBgColor(index2))
+                        {
+                            m_queue.Enqueue(index2);
+                        }
                     }
                 }
             }
@@ -234,10 +288,9 @@ namespace ImageProcess
         /// </summary>
         void ChangeBG_All()
         {
-            int rowByteNum = m_width * COLOR_BYTE_NUM;
             for (int h = 0; h < m_height; ++h)
             {
-                int baseIndex = h * rowByteNum;
+                int baseIndex = h * m_rowByteNum;
                 for (int w = 0; w < m_width; ++w)
                 {
                     TestAndSetBgColor(baseIndex + w * COLOR_BYTE_NUM);
@@ -290,9 +343,7 @@ namespace ImageProcess
             Rectangle rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
             BitmapData bitdata = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
             int byte_num = bitdata.Width * bitdata.Height * COLOR_BYTE_NUM; // ARGB
-            m_argbBytes = new byte[byte_num];
-            m_width = bitdata.Width;
-            m_height = bitdata.Height;
+            SetSize(bitdata.Width, bitdata.Height);
             System.Runtime.InteropServices.Marshal.Copy(bitdata.Scan0, m_argbBytes, 0, byte_num);
 
             // 处理像素
