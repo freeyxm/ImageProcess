@@ -26,7 +26,7 @@ namespace ImageProcess
         private int m_rowByteNum;
         private Color m_srcColor; // 源背景色
         private int m_dstColorInt; // 目标背景色
-        private int m_colorRange; // 阈值
+        private int m_threshold; // 阈值
         private Queue<int> m_pixelQueue; // 像素遍历队列
         private bool[] m_pixelVisited; // 像素遍历标记
 
@@ -40,12 +40,12 @@ namespace ImageProcess
         /// </summary>
         /// <param name="src">源背景色</param>
         /// <param name="dst">目标背景色</param>
-        /// <param name="range">阈值</param>
-        public void SetBgColor(Color src, Color dst, int range)
+        /// <param name="threshold">阈值</param>
+        public void SetBgColor(Color src, Color dst, int threshold)
         {
             m_srcColor = src;
             m_dstColorInt = dst.ToArgb();
-            m_colorRange = range;
+            m_threshold = threshold;
         }
 
         /// <summary>
@@ -303,7 +303,7 @@ namespace ImageProcess
             int r = (BitConverter.IsLittleEndian ? m_argbBytes[i + 2] : m_argbBytes[i + 0]) - m_srcColor.R;
             int g = (BitConverter.IsLittleEndian ? m_argbBytes[i + 1] : m_argbBytes[i + 1]) - m_srcColor.G;
             int b = (BitConverter.IsLittleEndian ? m_argbBytes[i + 0] : m_argbBytes[i + 2]) - m_srcColor.B;
-            if (r > -m_colorRange && r < m_colorRange && g > -m_colorRange && g < m_colorRange && b > -m_colorRange && b < m_colorRange)
+            if (r >= -m_threshold && r <= m_threshold && g >= -m_threshold && g <= m_threshold && b >= -m_threshold && b <= m_threshold)
                 return true;
             else
                 return false;

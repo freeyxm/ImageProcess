@@ -41,11 +41,11 @@ namespace ImageProcess
                         int r = int.Parse(_args[3]);
                         int g = int.Parse(_args[4]);
                         int b = int.Parse(_args[5]);
-                        int range = int.Parse(_args[6]);
+                        int threshold = int.Parse(_args[6]);
                         System.Drawing.Color srcColor = System.Drawing.Color.FromArgb(r, g, b);
                         System.Drawing.Color dstColor = System.Drawing.Color.FromArgb(0, r, g, b);
 
-                        imgProc.SetBgColor(srcColor, dstColor, range);
+                        imgProc.SetBgColor(srcColor, dstColor, threshold);
                         imgProc.ChangeBG_Dir(src, dst);
                         break;
                     default:
@@ -61,9 +61,9 @@ namespace ImageProcess
             if (CMD_TRANS_BG.Equals(cmd) || string.IsNullOrEmpty(cmd))
             {
                 Console.WriteLine();
-                Console.WriteLine(string.Format("{0} <src_dir> <dst_dir> <r> <g> <b> <range>", CMD_TRANS_BG));
+                Console.WriteLine(string.Format("{0} <src_dir> <dst_dir> <r> <g> <b> <threshold>", CMD_TRANS_BG));
                 Console.WriteLine("  -- <r> <g> <b>: from 0-255");
-                Console.WriteLine("  -- <range>: from 0-255");
+                Console.WriteLine("  -- <threshold>: from 0-255");
                 Console.WriteLine();
             }
         }
