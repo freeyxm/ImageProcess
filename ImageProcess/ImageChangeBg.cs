@@ -18,17 +18,23 @@ namespace ImageProcess
             Around = 2,
         }
 
-        private const int COLOR_BYTE_NUM = 4; // 采用 32-bit ARGB 格式
         private ChangeBgMode m_mode = ChangeBgMode.All; // 转换模式
+
+        private const int COLOR_BYTE_NUM = 4; // 采用 32-bit ARGB 格式
         private byte[] m_argbBytes; // 像素数组
         private int m_width; // 图片宽（像素）
         private int m_height; // 图片高（像素）
         private int m_rowByteNum;
+
         private Color m_srcColor; // 源背景色
         private int m_dstColorInt; // 目标背景色
         private int m_threshold; // 阈值
+
         private Queue<int> m_pixelQueue; // 像素遍历队列
         private bool[] m_pixelVisited; // 像素遍历标记
+
+        private bool m_sampleEnable; // 是否启用采样
+        private Point m_samplePoint; // 采样点
 
         public void SetMode(ChangeBgMode mode)
         {
@@ -46,6 +52,32 @@ namespace ImageProcess
             m_srcColor = src;
             m_dstColorInt = dst.ToArgb();
             m_threshold = threshold;
+        }
+
+        /// <summary>
+        /// 通过指定采样点来指定源背景色。
+        /// （当转换模式==ChangeBgMode.Around时，采样点将作为遍历的起始点-->改变指定区域的背景色^O^!）
+        /// </summary>
+        /// <param name="sample">采样点坐标</param>
+        /// <param name="dst">目标背景色</param>
+        /// <param name="threshold">阈值</param>
+        public void SetBgColor(Point sample, Color dst, int threshold)
+        {
+            m_sampleEnable = sample.X >= 0 && sample.Y >= 0;
+            if (m_sampleEnable)
+            {
+                m_samplePoint = sample;
+                m_dstColorInt = dst.ToArgb();
+                m_threshold = threshold;
+            }
+        }
+
+        void RefreshSamplePoint()
+        {
+            if (m_sampleEnable)
+            {
+                m_srcColor = Color.FromArgb(GetColor((m_samplePoint.Y * m_width + m_samplePoint.X) * COLOR_BYTE_NUM));
+            }
         }
 
         /// <summary>
@@ -163,11 +195,9 @@ namespace ImageProcess
                 m_pixelVisited[i] = false;
             }
 
-            // 不能确保从某一条边开始可以遍历完整幅图，所以需要对4条边进行遍历。
-            // top row
-            for (int w = 0; w < m_width; ++w)
+            if (m_sampleEnable)
             {
-                int indexC = w;
+                int indexC = m_samplePoint.Y * m_width + m_samplePoint.X;
                 int index = indexC * COLOR_BYTE_NUM;
                 if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
                 {
@@ -176,42 +206,58 @@ namespace ImageProcess
                     ChangeBG_AroundTraverse(m_pixelQueue);
                 }
             }
-            // bottom row
-            int baseH = (m_height - 1) * m_width;
-            for (int w = 0; w < m_width; ++w)
+            else
             {
-                int indexC = baseH + w;
-                int index = indexC * COLOR_BYTE_NUM;
-                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                // 不能确保从某一条边开始可以遍历完整幅图，所以需要对4条边进行遍历。
+                // top row
+                for (int w = 0; w < m_width; ++w)
                 {
-                    m_pixelVisited[indexC] = true;
-                    m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundTraverse(m_pixelQueue);
+                    int indexC = w;
+                    int index = indexC * COLOR_BYTE_NUM;
+                    if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                    {
+                        m_pixelVisited[indexC] = true;
+                        m_pixelQueue.Enqueue(index);
+                        ChangeBG_AroundTraverse(m_pixelQueue);
+                    }
                 }
-            }
-            // top col
-            for (int h = 0; h < m_height; ++h)
-            {
-                int indexC = h * m_width;
-                int index = indexC * COLOR_BYTE_NUM;
-                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                // bottom row
+                int baseH = (m_height - 1) * m_width;
+                for (int w = 0; w < m_width; ++w)
                 {
-                    m_pixelVisited[indexC] = true;
-                    m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundTraverse(m_pixelQueue);
+                    int indexC = baseH + w;
+                    int index = indexC * COLOR_BYTE_NUM;
+                    if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                    {
+                        m_pixelVisited[indexC] = true;
+                        m_pixelQueue.Enqueue(index);
+                        ChangeBG_AroundTraverse(m_pixelQueue);
+                    }
                 }
-            }
-            // bottom col
-            int baseW = m_width - 1;
-            for (int h = 0; h < m_height; ++h)
-            {
-                int indexC = h * m_width + baseW;
-                int index = indexC * COLOR_BYTE_NUM;
-                if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                // top col
+                for (int h = 0; h < m_height; ++h)
                 {
-                    m_pixelVisited[indexC] = true;
-                    m_pixelQueue.Enqueue(index);
-                    ChangeBG_AroundTraverse(m_pixelQueue);
+                    int indexC = h * m_width;
+                    int index = indexC * COLOR_BYTE_NUM;
+                    if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                    {
+                        m_pixelVisited[indexC] = true;
+                        m_pixelQueue.Enqueue(index);
+                        ChangeBG_AroundTraverse(m_pixelQueue);
+                    }
+                }
+                // bottom col
+                int baseW = m_width - 1;
+                for (int h = 0; h < m_height; ++h)
+                {
+                    int indexC = h * m_width + baseW;
+                    int index = indexC * COLOR_BYTE_NUM;
+                    if (!m_pixelVisited[indexC] && TestAndSetBgColor(index))
+                    {
+                        m_pixelVisited[indexC] = true;
+                        m_pixelQueue.Enqueue(index);
+                        ChangeBG_AroundTraverse(m_pixelQueue);
+                    }
                 }
             }
         }
@@ -327,6 +373,14 @@ namespace ImageProcess
             return false;
         }
 
+        unsafe int GetColor(int i)
+        {
+            fixed (byte* pb = &m_argbBytes[i])
+            {
+                return *((int*)pb);
+            }
+        }
+
         /// <summary>
         /// 改变指定图片的背景色。
         /// </summary>
@@ -345,6 +399,16 @@ namespace ImageProcess
             int byte_num = bitdata.Width * bitdata.Height * COLOR_BYTE_NUM; // ARGB
             SetSize(bitdata.Width, bitdata.Height);
             System.Runtime.InteropServices.Marshal.Copy(bitdata.Scan0, m_argbBytes, 0, byte_num);
+
+            if (m_sampleEnable)
+            {
+                if (m_samplePoint.X >= bitdata.Width || m_samplePoint.Y >= bitdata.Height)
+                {
+                    Console.Error.WriteLine(string.Format("Sample point ({0},{1}) out of range of image rect, file = {2}", m_samplePoint.X, m_samplePoint.Y, srcFile));
+                    return;
+                }
+                RefreshSamplePoint();
+            }
 
             // 处理像素
             switch (m_mode)
