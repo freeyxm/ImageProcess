@@ -13,8 +13,10 @@ namespace ImageProcess
         static void Main(string[] args)
         {
             PrintCmd(null);
+            ImageChangeBg imgProc = new ImageChangeBg();
+            imgProc.SetMode(ImageChangeBg.ChangeBgMode.Around);
 
-            char[] split = {' '};
+            char[] split = { ' ' };
             while (true)
             {
                 Console.Write(">");
@@ -43,8 +45,8 @@ namespace ImageProcess
                         System.Drawing.Color srcColor = System.Drawing.Color.FromArgb(r, g, b);
                         System.Drawing.Color dstColor = System.Drawing.Color.FromArgb(0, r, g, b);
 
-                        ImageChangeBg.ChangeBG_Dir(ImageChangeBg.ChangeBgMode.Around, src, dst, srcColor, dstColor, range);
-
+                        imgProc.SetBgColor(srcColor, dstColor, range);
+                        imgProc.ChangeBG_Dir(src, dst);
                         break;
                     default:
                         PrintCmd(null);
@@ -59,8 +61,8 @@ namespace ImageProcess
             {
                 Console.WriteLine();
                 Console.WriteLine(string.Format("{0} <src_dir> <dst_dir> <r> <g> <b> <range>", CMD_TRANS_BG));
-                Console.WriteLine("  -- <r> <g> <b>: from 1-255");
-                Console.WriteLine("  -- <range>: from 1-255");
+                Console.WriteLine("  -- <r> <g> <b>: from 0-255");
+                Console.WriteLine("  -- <range>: from 0-255");
                 Console.WriteLine();
             }
         }

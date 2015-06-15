@@ -14,44 +14,56 @@ namespace ImageProcess
         public enum ChangeBgMode
         {
             All = 0,
-            Around = 1,
+            AroundRect = 1,
+            Around = 2,
+        }
+
+        private const int COLOR_BYTE_NUM = 4; // 采用 32-bit ARGB 格式
+        private ChangeBgMode m_mode = ChangeBgMode.All; // 工作模式
+        private byte[] m_argbBytes; // 像素数组
+        private int m_width; // 图片宽
+        private int m_height; // 图片高
+        private Color m_srcColor; // 源背景色
+        private int m_dstColorInt; // 目标背景色
+        private int m_colorRange; // 阈值
+        private Queue<int> m_pixelQueue;
+
+        public void SetMode(ChangeBgMode mode)
+        {
+            m_mode = mode;
         }
 
         /// <summary>
-        /// 改变指定图片的背景色（外围像素）。
+        /// 设置背景色参数
         /// </summary>
-        /// <param name="argb_bytes">ARGB像素数组</param>
-        /// <param name="width">图片宽度</param>
-        /// <param name="height">图片高度</param>
-        /// <param name="srcColor">源背景色</param>
-        /// <param name="dstColor">目标背景色</param>
+        /// <param name="src">源背景色</param>
+        /// <param name="dst">目标背景色</param>
         /// <param name="range">阈值</param>
-        static unsafe void ChangeBG_Around(ref byte[] argb_bytes, int width, int height, Color srcColor, Color dstColor, int range)
+        public void SetBgColor(Color src, Color dst, int range)
         {
-            int top = 0, bottom = 0, left = width - 1, right = 0; // 标记背景的上下左右4个边界
-            int width4 = width * 4;
+            m_srcColor = src;
+            m_dstColorInt = dst.ToArgb();
+            m_colorRange = range;
+        }
+
+        /// <summary>
+        /// 改变指定图片外围的背景色（快速，只能处理边框是规则的类矩形的图像）。
+        /// </summary>
+        void ChangeBG_AroundRect()
+        {
+            int top = 0, bottom = 0, left = m_width - 1, right = 0; // 标记背景的上下左右4个边界
+            int rowByteNum = m_width * COLOR_BYTE_NUM;
 
             // 扫描行
-            for (int h = 0; h < height; ++h)
+            for (int h = 0; h < m_height; ++h)
             {
                 int w;
-                int w0 = width; // 从左开始的第1个非背景色像素点
-                int baseIndex = h * width4;
+                int w0 = m_width; // 从左开始的第1个非背景色像素点
+                int baseIndex = h * rowByteNum;
                 // left to right
-                for (w = 0; w < width; ++w)
+                for (w = 0; w < m_width; ++w)
                 {
-                    int i = baseIndex + w * 4;
-                    int r = (BitConverter.IsLittleEndian ? argb_bytes[i + 2] : argb_bytes[i + 0]) - srcColor.R;
-                    int g = (BitConverter.IsLittleEndian ? argb_bytes[i + 1] : argb_bytes[i + 1]) - srcColor.G;
-                    int b = (BitConverter.IsLittleEndian ? argb_bytes[i + 0] : argb_bytes[i + 2]) - srcColor.B;
-                    if (r > -range && r < range && g > -range && g < range && b > -range && b < range)
-                    {
-                        fixed (byte* pb = &argb_bytes[i])
-                        {
-                            *((int*)pb) = dstColor.ToArgb();
-                        }
-                    }
-                    else
+                    if (!TestAndSetBgColor(baseIndex + w * COLOR_BYTE_NUM))
                     {
                         w0 = w;
                         if (left > w) // 左边界
@@ -62,20 +74,9 @@ namespace ImageProcess
                     }
                 }
                 // right to left
-                for (w = width - 1; w > w0; --w)
+                for (w = m_width - 1; w > w0; --w)
                 {
-                    int i = baseIndex + w * 4;
-                    int r = (BitConverter.IsLittleEndian ? argb_bytes[i + 2] : argb_bytes[i + 0]) - srcColor.R;
-                    int g = (BitConverter.IsLittleEndian ? argb_bytes[i + 1] : argb_bytes[i + 1]) - srcColor.G;
-                    int b = (BitConverter.IsLittleEndian ? argb_bytes[i + 0] : argb_bytes[i + 2]) - srcColor.B;
-                    if (r > -range && r < range && g > -range && g < range && b > -range && b < range)
-                    {
-                        fixed (byte* pb = &argb_bytes[i])
-                        {
-                            *((int*)pb) = dstColor.ToArgb();
-                        }
-                    }
-                    else
+                    if (!TestAndSetBgColor(baseIndex + w * COLOR_BYTE_NUM))
                     {
                         if (right < w) // 右边界
                         {
@@ -101,22 +102,11 @@ namespace ImageProcess
             {
                 int h;
                 int h0 = bottom; // 从上开始的第1个非背景色像素点
-                int baseW = w * 4;
+                int baseW = w * COLOR_BYTE_NUM;
                 // top to bottom
                 for (h = top; h <= bottom; ++h)
                 {
-                    int i = h * width4 + baseW;
-                    int r = (BitConverter.IsLittleEndian ? argb_bytes[i + 2] : argb_bytes[i + 0]) - srcColor.R;
-                    int g = (BitConverter.IsLittleEndian ? argb_bytes[i + 1] : argb_bytes[i + 1]) - srcColor.G;
-                    int b = (BitConverter.IsLittleEndian ? argb_bytes[i + 0] : argb_bytes[i + 2]) - srcColor.B;
-                    if (r > -range && r < range && g > -range && g < range && b > -range && b < range)
-                    {
-                        fixed (byte* pb = &argb_bytes[i])
-                        {
-                            *((int*)pb) = dstColor.ToArgb();
-                        }
-                    }
-                    else
+                    if (!TestAndSetBgColor(h * rowByteNum + baseW))
                     {
                         h0 = h;
                         break;
@@ -125,18 +115,7 @@ namespace ImageProcess
                 // bottom to top
                 for (h = bottom; h > h0; --h)
                 {
-                    int i = h * width4 + baseW;
-                    int r = (BitConverter.IsLittleEndian ? argb_bytes[i + 2] : argb_bytes[i + 0]) - srcColor.R;
-                    int g = (BitConverter.IsLittleEndian ? argb_bytes[i + 1] : argb_bytes[i + 1]) - srcColor.G;
-                    int b = (BitConverter.IsLittleEndian ? argb_bytes[i + 0] : argb_bytes[i + 2]) - srcColor.B;
-                    if (r > -range && r < range && g > -range && g < range && b > -range && b < range)
-                    {
-                        fixed (byte* pb = &argb_bytes[i])
-                        {
-                            *((int*)pb) = dstColor.ToArgb();
-                        }
-                    }
-                    else
+                    if (!TestAndSetBgColor(h * rowByteNum + baseW))
                     {
                         break;
                     }
@@ -145,35 +124,154 @@ namespace ImageProcess
         }
 
         /// <summary>
-        /// 改变指定图片的背景色（所有像素）。
+        /// 改变指定图片外围的背景色。
         /// </summary>
-        /// <param name="argb_bytes">ARGB像素数组</param>
-        /// <param name="width">图片宽度</param>
-        /// <param name="height">图片高度</param>
-        /// <param name="srcColor">源背景色</param>
-        /// <param name="dstColor">目标背景色</param>
-        /// <param name="range">阈值</param>
-        static unsafe void ChangeBG_All(ref byte[] argb_bytes, int width, int height, Color srcColor, Color dstColor, int range)
+        void ChangeBG_Around()
         {
-            int width4 = width * 4;
-            for (int h = 0; h < height; ++h)
+            if (m_pixelQueue == null)
+                m_pixelQueue = new Queue<int>();
+            else
+                m_pixelQueue.Clear();
+
+            // 不能确保从某一条边开始可以遍历完整幅图，所以需要对4条边进行遍历。
+            // top row
+            for (int w = 0; w < m_width; ++w)
             {
-                int baseIndex = h * width4;
-                for (int w = 0; w < width; ++w)
+                int index = w * COLOR_BYTE_NUM;
+                if (IsBgColor(index))
                 {
-                    int i = baseIndex + w * 4;
-                    int r = (BitConverter.IsLittleEndian ? argb_bytes[i + 2] : argb_bytes[i + 0]) - srcColor.R;
-                    int g = (BitConverter.IsLittleEndian ? argb_bytes[i + 1] : argb_bytes[i + 1]) - srcColor.G;
-                    int b = (BitConverter.IsLittleEndian ? argb_bytes[i + 0] : argb_bytes[i + 2]) - srcColor.B;
-                    if (r > -range && r < range && g > -range && g < range && b > -range && b < range)
+                    m_pixelQueue.Enqueue(index);
+                    ChangeBG_AroundSearch(m_pixelQueue);
+                }
+            }
+            // bottom row
+            int baseH = (m_height - 1) * m_width;
+            for (int w = 0; w < m_width; ++w)
+            {
+                int index = (baseH + w) * COLOR_BYTE_NUM;
+                if (IsBgColor(index))
+                {
+                    m_pixelQueue.Enqueue(index);
+                    ChangeBG_AroundSearch(m_pixelQueue);
+                }
+            }
+            // top col
+            int rowByteNum = m_width * COLOR_BYTE_NUM;
+            for (int h = 0; h < m_height; ++h)
+            {
+                int index = h * rowByteNum;
+                if (IsBgColor(index))
+                {
+                    m_pixelQueue.Enqueue(index);
+                    ChangeBG_AroundSearch(m_pixelQueue);
+                }
+            }
+            // bottom col
+            int baseW = (m_width - 1) * COLOR_BYTE_NUM;
+            for (int h = 0; h < m_height; ++h)
+            {
+                int index = h * rowByteNum + baseW;
+                if (IsBgColor(index))
+                {
+                    m_pixelQueue.Enqueue(index);
+                    ChangeBG_AroundSearch(m_pixelQueue);
+                }
+            }
+        }
+
+        void ChangeBG_AroundSearch(Queue<int> m_queue)
+        {
+            int rowByteNum = m_width * COLOR_BYTE_NUM;
+            while (m_queue.Count > 0)
+            {
+                int index = m_queue.Dequeue();
+                int indexC = index / COLOR_BYTE_NUM;
+                int w = indexC % m_width;
+                int h = indexC / m_width;
+                // left
+                if (w > 0)
+                {
+                    ChangeBG_AroundSearchUpdate(m_queue, index - COLOR_BYTE_NUM);
+                }
+                // right
+                if (w < m_width - 1)
+                {
+                    ChangeBG_AroundSearchUpdate(m_queue, index + COLOR_BYTE_NUM);
+                }
+                // top
+                if (h > 0)
+                {
+                    ChangeBG_AroundSearchUpdate(m_queue, index - rowByteNum);
+                }
+                // top
+                if (h < m_height - 1)
+                {
+                    ChangeBG_AroundSearchUpdate(m_queue, index + rowByteNum);
+                }
+            }
+        }
+
+        unsafe void ChangeBG_AroundSearchUpdate(Queue<int> m_queue, int index)
+        {
+            if (m_queue.Contains(index))
+                return;
+            if (IsBgColor(index))
+            {
+                fixed (byte* pb = &m_argbBytes[index])
+                {
+                    int color = *((int*)pb);
+                    if (color != m_dstColorInt)
                     {
-                        fixed (byte* pb = &argb_bytes[i])
-                        {
-                            *((int*)pb) = dstColor.ToArgb();
-                        }
+                        *((int*)pb) = m_dstColorInt;
+                        m_queue.Enqueue(index);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// 改变指定图片的背景色（所有像素）。
+        /// </summary>
+        void ChangeBG_All()
+        {
+            int rowByteNum = m_width * COLOR_BYTE_NUM;
+            for (int h = 0; h < m_height; ++h)
+            {
+                int baseIndex = h * rowByteNum;
+                for (int w = 0; w < m_width; ++w)
+                {
+                    TestAndSetBgColor(baseIndex + w * COLOR_BYTE_NUM);
+                }
+            }
+        }
+
+        bool IsBgColor(int i)
+        {
+            int r = (BitConverter.IsLittleEndian ? m_argbBytes[i + 2] : m_argbBytes[i + 0]) - m_srcColor.R;
+            int g = (BitConverter.IsLittleEndian ? m_argbBytes[i + 1] : m_argbBytes[i + 1]) - m_srcColor.G;
+            int b = (BitConverter.IsLittleEndian ? m_argbBytes[i + 0] : m_argbBytes[i + 2]) - m_srcColor.B;
+            if (r > -m_colorRange && r < m_colorRange && g > -m_colorRange && g < m_colorRange && b > -m_colorRange && b < m_colorRange)
+                return true;
+            else
+                return false;
+        }
+
+        bool IsBgColor(int w, int h)
+        {
+            return IsBgColor((h * m_width + w) * COLOR_BYTE_NUM);
+        }
+
+        unsafe bool TestAndSetBgColor(int i)
+        {
+            if (IsBgColor(i))
+            {
+                fixed (byte* pb = &m_argbBytes[i])
+                {
+                    *((int*)pb) = m_dstColorInt;
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -181,11 +279,8 @@ namespace ImageProcess
         /// </summary>
         /// <param name="srcFile">源文件</param>
         /// <param name="dstFile">输出文件</param>
-        /// <param name="srcColor">源背景色</param>
-        /// <param name="dstColor">输出背景色</param>
-        /// <param name="range">阈值</param>
         /// <returns></returns>
-        public static void ChangeBG(ChangeBgMode mode, string srcFile, string dstFile, Color srcColor, Color dstColor, int range)
+        public void ChangeBG(string srcFile, string dstFile)
         {
             // 打开图片
             Image image = Image.FromFile(srcFile);
@@ -194,23 +289,28 @@ namespace ImageProcess
             // 加载像素
             Rectangle rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
             BitmapData bitdata = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
-            int byte_num = bitdata.Width * bitdata.Height * 4; // ARGB
-            byte[] argb_bytes = new byte[byte_num];
-            System.Runtime.InteropServices.Marshal.Copy(bitdata.Scan0, argb_bytes, 0, byte_num);
+            int byte_num = bitdata.Width * bitdata.Height * COLOR_BYTE_NUM; // ARGB
+            m_argbBytes = new byte[byte_num];
+            m_width = bitdata.Width;
+            m_height = bitdata.Height;
+            System.Runtime.InteropServices.Marshal.Copy(bitdata.Scan0, m_argbBytes, 0, byte_num);
 
             // 处理像素
-            switch (mode)
+            switch (m_mode)
             {
+                case ChangeBgMode.AroundRect:
+                    ChangeBG_AroundRect();
+                    break;
                 case ChangeBgMode.Around:
-                    ChangeBG_Around(ref argb_bytes, bitdata.Width, bitdata.Height, srcColor, dstColor, range);
+                    ChangeBG_Around();
                     break;
                 default:
-                    ChangeBG_All(ref argb_bytes, bitdata.Width, bitdata.Height, srcColor, dstColor, range);
+                    ChangeBG_All();
                     break;
             }
 
             // 保存处理后的像素到图片
-            System.Runtime.InteropServices.Marshal.Copy(argb_bytes, 0, bitdata.Scan0, byte_num);
+            System.Runtime.InteropServices.Marshal.Copy(m_argbBytes, 0, bitdata.Scan0, byte_num);
             bitmap.UnlockBits(bitdata);
             bitmap.Save(dstFile);
 
@@ -219,7 +319,7 @@ namespace ImageProcess
             image.Dispose();
         }
 
-        public static void ChangeBG_Dir(ChangeBgMode mode, string srcDir, string dstDir, Color srcColor, Color dstColor, int range)
+        public void ChangeBG_Dir(string srcDir, string dstDir)
         {
             if (dstDir.Contains('\\'))
                 dstDir = dstDir.Replace('\\', '/');
@@ -228,10 +328,12 @@ namespace ImageProcess
 
             DirectoryInfo dir = new DirectoryInfo(srcDir);
             FileInfo[] files = dir.GetFiles("*.*", SearchOption.TopDirectoryOnly);
+            Console.WriteLine(string.Format("Total file count: {0}", files.Length));
             for (int i = 0; i < files.Length; ++i)
             {
                 FileInfo file = files[i];
-                ChangeBG(mode, file.FullName, dstDir + file.Name, srcColor, dstColor, range);
+                Console.WriteLine(string.Format("({0:d}/{1:d}) Processing {2} ...", i + 1, files.Length, file.Name));
+                ChangeBG(file.FullName, dstDir + file.Name);
             }
         }
     }
